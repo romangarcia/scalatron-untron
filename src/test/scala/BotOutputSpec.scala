@@ -1,5 +1,4 @@
 import org.scalatest.FlatSpec
-import untron._
 
 class BotOutputSpec extends FlatSpec {
 
@@ -19,7 +18,7 @@ class BotOutputSpec extends FlatSpec {
   }
 
   it should "render Set command" in {
-    val out = untron.Set("foo" -> "bar", "fez" -> "pez").toCommandString
+    val out = Set("foo" -> "bar", "fez" -> "pez").toCommandString
     assert( out === "Set(foo=bar,fez=pez)" )
   }
 

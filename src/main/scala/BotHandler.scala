@@ -1,25 +1,27 @@
-package untron
-
 trait BotHandler extends (String => String) {
 
   def welcome(welcome: Welcome): BotOutput
   def reactMaster(react: React): BotOutput
-  def reactMini(react: React): BotOutput
+  def reactMini(react: React): MiniBotOutput
   def goodBye(goodbye: Goodbye): Idle.type
 
-  override def apply(input: String): String = {
-    BotInput(input) match {
+  def apply(input: String): String = {
+
+    val in: BotInput = BotInput(input)
+
+    in match {
       case w: Welcome => welcome(w).toCommandString
       case rm: React if rm.isMaster => reactMaster(rm).toCommandString
       case rmi: React => reactMini(rmi).toCommandString
       case g: Goodbye => goodBye(g).toCommandString
     }
   }
+
 }
 
 sealed trait BotInput
 case class Welcome(name: String, apocalypse: Int, round: Int) extends BotInput
-case class React(name: String, view: BotView, time: Int, energy: Int, master: BotDirection, collision: Option[BotDirection], generation: Int) extends BotInput {
+case class React(name: String, view: BotView, time: Int, energy: Int, master: Option[BotDirection], collision: Option[BotDirection], generation: Int) extends BotInput {
   def isMaster: Boolean = generation == 0
 }
 case class Goodbye(energy: Int) extends BotInput
@@ -27,31 +29,39 @@ case class Goodbye(energy: Int) extends BotInput
 sealed trait BotOutput {
   def toCommandString: String
 }
-case class Move(direction: BotDirection) extends BotOutput {
+
+sealed trait MiniBotOutput extends BotOutput
+sealed trait MasterBotOutput extends BotOutput
+
+case class Move(direction: BotDirection) extends MiniBotOutput with MasterBotOutput {
   def toCommandString: String = s"Move(direction=${direction.x}:${direction.y})"
 }
-case class Explode(size: Int) extends BotOutput {
+case class Explode(size: Int) extends MiniBotOutput {
   def toCommandString: String = s"Explode(size=$size)"
 }
-case class Say(text: String) extends BotOutput {
+case class Say(text: String) extends MiniBotOutput with MasterBotOutput {
   def toCommandString: String = s"Say(text=$text)"
 }
-case class Set(keyValues: (String, String)*) extends BotOutput {
+case class Status(text: String) extends MiniBotOutput with MasterBotOutput {
+  def toCommandString: String = s"Status(text=$text)"
+}
+case class Set(keyValues: (String, String)*) extends MiniBotOutput with MasterBotOutput{
   def toCommandString: String = s"Set(${keyValues.map{case (k, v) => s"$k=$v" }.mkString(",")})"
 }
-case class Spawn(direction: BotDirection, name: String, energy: Int) extends BotOutput {
+case class Spawn(direction: BotDirection, name: String, energy: Int) extends MiniBotOutput with MasterBotOutput {
   def toCommandString: String = s"Spawn(direction=$direction,name=$name,energy=$energy)"
 }
-case object Idle extends BotOutput {
+case object Idle extends MiniBotOutput with MasterBotOutput {
   def toCommandString: String = ""
 }
 case class CompositeOutput(say: Option[Say] = None,
+                           status: Option[Status] = None,
                            spawn: Option[Spawn] = None,
                            set: Option[Set] = None,
                            explode: Option[Explode] = None,
-                           move: Option[Move] = None) extends BotOutput {
+                           move: Option[Move] = None) extends MiniBotOutput with MasterBotOutput {
   def toCommandString: String = {
-    val commands: Seq[BotOutput] = Seq(say, spawn, set, explode, move).flatten
+    val commands: Seq[BotOutput] = Seq(say, status, spawn, set, explode, move).flatten
     commands.map(_.toCommandString).mkString("|")
   }
 }
@@ -102,7 +112,9 @@ object BotInput {
       case "Welcome" => Welcome(p("name"), p("apocalypse").toInt, p("round").toInt)
       case "React" => React(p("name"), new BotView(p("view")),
         p("time").toInt, p("energy").toInt,
-        BotDirection(p("master")), p.get("collision").map(s => BotDirection(s)), p("generation").toInt)
+        p.get("master").map(s => BotDirection(s)),
+        p.get("collision").map(s => BotDirection(s)), p("generation").toInt
+      )
       case "Goodbye" => Goodbye(p("energy").toInt)
     }
 
