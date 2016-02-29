@@ -1,4 +1,5 @@
 import org.scalatest.FlatSpec
+import tronador._
 
 class BotOutputSpec extends FlatSpec {
 

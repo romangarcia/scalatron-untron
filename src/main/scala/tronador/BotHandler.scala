@@ -1,43 +1,52 @@
+package tronador
+
 import scala.util.Random
 
 trait BotHandler extends (String => String) {
 
-  def welcome(welcome: Welcome): BotOutput
-  def reactMaster(react: React): BotOutput
-  def reactMini(react: React): MiniBotOutput
-  def goodBye(goodbye: Goodbye): Idle.type
+  def welcome(welcome: WelcomeCommand): BotOutput
+  def reactMaster(react: ReactCommand): BotOutput
+  def reactMini(react: ReactCommand): MiniBotOutput
+  def goodBye(goodbye: GoodbyeCommand): Idle.type
 
   def apply(input: String): String = {
 
     val in: BotInput = BotInput(input)
 
-    in match {
-      case w: Welcome => welcome(w).toCommandString
-      case rm: React if rm.isMaster => reactMaster(rm).toCommandString
-      case rmi: React => reactMini(rmi).toCommandString
-      case g: Goodbye => goodBye(g).toCommandString
-    }
+    (in match {
+      case w: WelcomeCommand => welcome(w)
+      case rm: ReactCommand if rm.isMaster => reactMaster(rm)
+      case rmi: ReactCommand => reactMini(rmi)
+      case g: GoodbyeCommand => goodBye(g)
+    }).toCommandString
   }
 
 }
 
 sealed trait BotInput
-case class Welcome(name: String, apocalypse: Int, round: Int) extends BotInput
-case class React(name: String,
-                 view: BotView,
-                 time: Int,
-                 energy: Int,
-                 master: Option[BotDirection],
-                 collision: Option[BotDirection],
-                 generation: Int,
-                 params: Map[String, String]
+case class WelcomeCommand(name: String, apocalypse: Int, round: Int) extends BotInput
+case class ReactCommand(name: String,
+                        view: BotView,
+                        time: Int,
+                        energy: Int,
+                        master: Option[BotDirection],
+                        collision: Option[BotDirection],
+                        generation: Int,
+                        params: Map[String, String]
                 ) extends BotInput {
   def isMaster: Boolean = generation == 0
 }
-case class Goodbye(energy: Int) extends BotInput
+case class GoodbyeCommand(energy: Int) extends BotInput
 
 sealed trait BotOutput {
   def toCommandString: String
+
+  def paramsToCommandString(m: Map[String, String]) = {
+    if (m.isEmpty) ""
+    else {
+      m.map{case (k, v) => s"$k=$v" }.mkString(",")
+    }
+  }
 }
 
 sealed trait MiniBotOutput extends BotOutput
@@ -56,10 +65,10 @@ case class Status(text: String) extends MiniBotOutput with MasterBotOutput {
   def toCommandString: String = s"Status(text=$text)"
 }
 case class Set(keyValues: (String, String)*) extends MiniBotOutput with MasterBotOutput {
-  def toCommandString: String = s"Set(${keyValues.map{case (k, v) => s"$k=$v" }.mkString(",")})"
+  def toCommandString: String = s"Set(${paramsToCommandString(keyValues.toMap)})"
 }
 case class Spawn(direction: BotDirection, energy: Int, name: Option[String], params: Map[String, String] = Map()) extends MiniBotOutput with MasterBotOutput {
-  def toCommandString: String = s"Spawn(direction=$direction${name.map(n => s",name=$n").getOrElse("")},energy=$energy,${params.map{case (k, v) => s"$k=$v" }.mkString(",")})"
+  def toCommandString: String = s"Spawn(direction=$direction${name.map(n => s",name=$n").getOrElse("")},energy=$energy${paramsToCommandString(params)})"
 }
 case object Idle extends MiniBotOutput with MasterBotOutput {
   def toCommandString: String = ""
@@ -149,15 +158,15 @@ object BotInput {
     val (opCode, p) = parseInput(in)
 
     opCode match {
-      case "Welcome" => Welcome(p("name"), p("apocalypse").toInt, p("round").toInt)
-      case "React" => React(p("name"), new BotView(p("view")),
+      case "Welcome" => WelcomeCommand(p("name"), p("apocalypse").toInt, p("round").toInt)
+      case "React" => ReactCommand(p("name"), new BotView(p("view")),
         p("time").toInt, p("energy").toInt,
         p.get("master").map(s => BotDirection(s)),
         p.get("collision").map(s => BotDirection(s)),
         p("generation").toInt,
         p
       )
-      case "Goodbye" => Goodbye(p("energy").toInt)
+      case "Goodbye" => GoodbyeCommand(p("energy").toInt)
     }
 
   }
