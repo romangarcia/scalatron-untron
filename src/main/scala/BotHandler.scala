@@ -1,3 +1,5 @@
+import scala.util.Random
+
 trait BotHandler extends (String => String) {
 
   def welcome(welcome: Welcome): BotOutput
@@ -21,7 +23,15 @@ trait BotHandler extends (String => String) {
 
 sealed trait BotInput
 case class Welcome(name: String, apocalypse: Int, round: Int) extends BotInput
-case class React(name: String, view: BotView, time: Int, energy: Int, master: Option[BotDirection], collision: Option[BotDirection], generation: Int) extends BotInput {
+case class React(name: String,
+                 view: BotView,
+                 time: Int,
+                 energy: Int,
+                 master: Option[BotDirection],
+                 collision: Option[BotDirection],
+                 generation: Int,
+                 params: Map[String, String]
+                ) extends BotInput {
   def isMaster: Boolean = generation == 0
 }
 case class Goodbye(energy: Int) extends BotInput
@@ -45,25 +55,39 @@ case class Say(text: String) extends MiniBotOutput with MasterBotOutput {
 case class Status(text: String) extends MiniBotOutput with MasterBotOutput {
   def toCommandString: String = s"Status(text=$text)"
 }
-case class Set(keyValues: (String, String)*) extends MiniBotOutput with MasterBotOutput{
+case class Set(keyValues: (String, String)*) extends MiniBotOutput with MasterBotOutput {
   def toCommandString: String = s"Set(${keyValues.map{case (k, v) => s"$k=$v" }.mkString(",")})"
 }
-case class Spawn(direction: BotDirection, name: String, energy: Int) extends MiniBotOutput with MasterBotOutput {
-  def toCommandString: String = s"Spawn(direction=$direction,name=$name,energy=$energy)"
+case class Spawn(direction: BotDirection, energy: Int, name: Option[String], params: Map[String, String] = Map()) extends MiniBotOutput with MasterBotOutput {
+  def toCommandString: String = s"Spawn(direction=$direction${name.map(n => s",name=$n").getOrElse("")},energy=$energy,${params.map{case (k, v) => s"$k=$v" }.mkString(",")})"
 }
 case object Idle extends MiniBotOutput with MasterBotOutput {
   def toCommandString: String = ""
 }
-case class CompositeOutput(say: Option[Say] = None,
-                           status: Option[Status] = None,
-                           spawn: Option[Spawn] = None,
-                           set: Option[Set] = None,
-                           explode: Option[Explode] = None,
-                           move: Option[Move] = None) extends MiniBotOutput with MasterBotOutput {
+case class CompositeBotOutput(say: Option[Say] = None,
+                              status: Option[Status] = None,
+                              spawn: Option[Spawn] = None,
+                              set: Option[Set] = None,
+                              explode: Option[Explode] = None,
+                              move: Option[Move] = None) extends MiniBotOutput with MasterBotOutput {
   def toCommandString: String = {
     val commands: Seq[BotOutput] = Seq(say, status, spawn, set, explode, move).flatten
     commands.map(_.toCommandString).mkString("|")
   }
+
+  def say(text: String): CompositeBotOutput = copy(say = Some(Say(text)))
+  def status(text: String): CompositeBotOutput = copy(status = Some(Status(text)))
+  def move(direction: BotDirection): CompositeBotOutput = copy(move = Some(Move(direction)))
+  def set(keyValue: (String, Any)): CompositeBotOutput = copy(set = set.map { s =>
+    Set(s.keyValues :+ (keyValue._1 -> keyValue._2.toString): _*)
+  }.orElse(Some(Set(keyValue._1 -> keyValue._2.toString))))
+  def set(keyValues: Seq[(String, String)]): CompositeBotOutput = copy(set = Some(Set(keyValues:_*)))
+  def spawn(direction: BotDirection, energy: Int,
+            name: Option[String] = None, params: Seq[(String, String)] = Seq()) = copy(spawn = Some(Spawn(direction, energy, name, params.toMap)))
+  def spawn(direction: BotDirection, energy: Int,
+            params: (String, String)*) = copy(spawn = Some(Spawn(direction, energy, None, params.toMap)))
+  def explode(size: Int): CompositeBotOutput = copy(explode = Some(Explode(size)))
+
 }
 
 case class BotView(cells: String) {
@@ -80,10 +104,16 @@ case class BotView(cells: String) {
   def relPosFromIndex(index: Int) = relPosFromAbsPos(absPosFromIndex(index))
   def cellAtRelPos(relPos: BotDirection) = cells.charAt(indexFromRelPos(relPos))
 
-  def offsetToNearest(c: Char) = {
-    val relativePositions = cells.par.view.zipWithIndex.filter(_._1 == c).map(p => relPosFromIndex(p._2))
-    if(relativePositions.isEmpty) None
-    else Some(relativePositions.minBy(_.length))
+  def offsetToNearest(c: Char): Option[BotDirection] = offsetToNearest(_ == c)
+
+  def offsetToNearest(f: Char => Boolean): Option[BotDirection] = {
+    val matchingXY = cells.view.zipWithIndex.filter(t => f(t._1))
+    if( matchingXY.isEmpty )
+      None
+    else {
+      val nearest = matchingXY.map(p => relPosFromIndex(p._2)).minBy(_.length)
+      Some(nearest)
+    }
   }
 }
 
@@ -93,6 +123,8 @@ object BotDirection {
       case Array(x, y) => new BotDirection(x.toInt, y.toInt)
     }
   }
+
+  def random(rnd: Random): BotDirection = BotDirection(rnd.nextInt(3) - 1, rnd.nextInt(3) - 1)
 }
 case class BotDirection(x: Int, y: Int) {
   override def toString = x + ":" + y
@@ -101,6 +133,14 @@ case class BotDirection(x: Int, y: Int) {
   def distance(pos: BotDirection) : Double = (this-pos).length
   def length : Double = math.sqrt(x*x + y*y)
   def signum = BotDirection(x.signum, y.signum)
+
+  def isNonZero = x != 0 || y != 0
+  def isZero = x == 0 && y == 0
+  def isNonNegative = x >= 0 && y >= 0
+
+  def stepsTo(pos: BotDirection): Int = (this - pos).stepCount // steps to reach pos: max delta X or Y
+  def stepCount: Int = x.abs.max(y.abs) // steps from (0,0) to get here: max X or Y
+
 }
 
 object BotInput {
@@ -113,7 +153,9 @@ object BotInput {
       case "React" => React(p("name"), new BotView(p("view")),
         p("time").toInt, p("energy").toInt,
         p.get("master").map(s => BotDirection(s)),
-        p.get("collision").map(s => BotDirection(s)), p("generation").toInt
+        p.get("collision").map(s => BotDirection(s)),
+        p("generation").toInt,
+        p
       )
       case "Goodbye" => Goodbye(p("energy").toInt)
     }

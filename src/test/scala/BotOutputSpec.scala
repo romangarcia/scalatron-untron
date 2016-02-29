@@ -8,7 +8,7 @@ class BotOutputSpec extends FlatSpec {
   }
 
   it should "render Spawn command" in {
-    val out = Spawn(BotDirection(5, -3), "Pepe", 1000).toCommandString
+    val out = Spawn(BotDirection(5, -3), 1000, Option("Pepe")).toCommandString
     assert( out === "Spawn(direction=5:-3,name=Pepe,energy=1000)" )
   }
 
@@ -28,7 +28,7 @@ class BotOutputSpec extends FlatSpec {
   }
 
   it should "render Composite command" in {
-    val out = CompositeOutput(explode = Some(Explode(3000)), say = Some(Say("Hola"))).toCommandString
+    val out = CompositeBotOutput(explode = Some(Explode(3000)), say = Some(Say("Hola"))).toCommandString
     assert( out === "Say(text=Hola)|Explode(size=3000)" )
   }
 
